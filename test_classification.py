@@ -33,34 +33,48 @@ def parse_args():
 
 
 def test(model, loader, num_class=40, vote_num=1):
-    mean_correct = []
+    # mean_correct = []
     classifier = model.eval()
-    class_acc = np.zeros((num_class, 3))
+    # class_acc = np.zeros((num_class, 3))
+
+    shape_preclassification_feats = []
 
     for j, (points, target) in tqdm(enumerate(loader), total=len(loader)):
         if not args.use_cpu:
             points, target = points.cuda(), target.cuda()
 
         points = points.transpose(2, 1)
-        vote_pool = torch.zeros(target.size()[0], num_class).cuda()
+        # vote_pool = torch.zeros(target.size()[0], num_class).cuda()
+        print("extracting feat")
+        pred, _, preclassification_feat = classifier(points)
+        shape_preclassification_feats.append(preclassification_feat)
 
-        for _ in range(vote_num):
-            pred, _ = classifier(points)
-            vote_pool += pred
-        pred = vote_pool / vote_num
-        pred_choice = pred.data.max(1)[1]
+        # for _ in range(vote_num):
+        #     pred, _, = classifier(points)
+            # vote_pool += pred
+        # pred = vote_pool / vote_num
+        # pred_choice = pred.data.max(1)[1]
 
-        for cat in np.unique(target.cpu()):
-            classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
-            class_acc[cat, 1] += 1
-        correct = pred_choice.eq(target.long().data).cpu().sum()
-        mean_correct.append(correct.item() / float(points.size()[0]))
+    #     for cat in np.unique(target.cpu()):
+    #         classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
+    #         class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
+    #         class_acc[cat, 1] += 1
+    #     correct = pred_choice.eq(target.long().data).cpu().sum()
+    #     mean_correct.append(correct.item() / float(points.size()[0]))
 
-    class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
-    class_acc = np.mean(class_acc[:, 2])
-    instance_acc = np.mean(mean_correct)
-    return instance_acc, class_acc
+    # class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
+    # class_acc = np.mean(class_acc[:, 2])
+    # instance_acc = np.mean(mean_correct)
+    # return instance_acc, class_acc
+    shape_preclassification_feats = torch.cat(shape_preclassification_feats, dim=0)
+    pairwise_dists = torch.cdist(shape_preclassification_feats,shape_preclassification_feats)
+
+    print("pairwise dists: ")
+    print(pairwise_dists)
+    print("saving feats: ", shape_preclassification_feats.shape)
+    np.save("plane_feats/spaghetti_gt_plane_feats.npy", shape_preclassification_feats.detach().cpu().numpy())
+    np.save("plane_feats/pairwise_dists.npy", pairwise_dists.detach().cpu().numpy())
+    exit()
 
 
 def main(args):
@@ -79,16 +93,16 @@ def main(args):
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler('%s/eval.txt' % experiment_dir)
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    # file_handler = logging.FileHandler('%s/eval.txt' % experiment_dir)
+    # file_handler.setLevel(logging.INFO)
+    # file_handler.setFormatter(formatter)
+    # logger.addHandler(file_handler)
     log_string('PARAMETER ...')
     log_string(args)
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
-    data_path = 'data/modelnet40_normal_resampled/'
+    data_path = '../shapenet_all_planes' # 'data/modelnet40_normal_resampled/'
 
     test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=False)
     testDataLoader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
