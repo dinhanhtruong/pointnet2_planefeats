@@ -14,6 +14,7 @@ import provider
 import importlib
 import shutil
 import argparse
+import pytorch3d.loss
 
 from pathlib import Path
 from tqdm import tqdm
@@ -33,7 +34,7 @@ def parse_args():
     parser.add_argument('--num_category', default=40, type=int, choices=[10, 40],  help='training on ModelNet10/40')
     parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number')
+    parser.add_argument('--num_point', type=int, default=2048, help='Point Number')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
@@ -49,10 +50,9 @@ def inplace_relu(m):
         m.inplace=True
 
 
-def test(model, loader, num_class=40):
-    mean_correct = []
-    class_acc = np.zeros((num_class, 3))
-    classifier = model.eval()
+def test(model, loader, loss_fn, num_class=40):
+    losses = []
+    model = model.eval()
 
     for j, (points, target) in tqdm(enumerate(loader), total=len(loader)):
 
@@ -60,22 +60,23 @@ def test(model, loader, num_class=40):
             points, target = points.cuda(), target.cuda()
 
         points = points.transpose(2, 1)
-        pred, _ = classifier(points)
-        pred_choice = pred.data.max(1)[1]
+        pred, _ = model(points)
+        losses.append(loss_fn(pred, points.transpose(2, 1))[0].item())
 
-        for cat in np.unique(target.cpu()):
-            classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
-            class_acc[cat, 1] += 1
+    #     for cat in np.unique(target.cpu()):
+    #         classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
+    #         class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
+    #         class_acc[cat, 1] += 1
 
-        correct = pred_choice.eq(target.long().data).cpu().sum()
-        mean_correct.append(correct.item() / float(points.size()[0]))
+    #     correct = pred_choice.eq(target.long().data).cpu().sum()
+    #     mean_correct.append(correct.item() / float(points.size()[0]))
 
-    class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
-    class_acc = np.mean(class_acc[:, 2])
-    instance_acc = np.mean(mean_correct)
+    # class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
+    # class_acc = np.mean(class_acc[:, 2])
+    # instance_acc = np.mean(mean_correct)
 
-    return instance_acc, class_acc
+    return np.mean(losses)
+
 
 
 def main(args):
@@ -116,10 +117,10 @@ def main(args):
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
-    data_path = 'data/modelnet40_normal_resampled/'
+    data_path = '../shapenet_all_planes'# 'data/modelnet40_normal_resampled/'
 
-    train_dataset = ModelNetDataLoader(root=data_path, args=args, split='train', process_data=args.process_data)
-    test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=args.process_data)
+    train_dataset = ModelNetDataLoader(root=data_path, args=args, split='train', process_data=False)
+    test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=False)
     trainDataLoader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=10, drop_last=True)
     testDataLoader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
 
@@ -130,13 +131,14 @@ def main(args):
     shutil.copy('models/pointnet2_utils.py', str(exp_dir))
     shutil.copy('./train_classification.py', str(exp_dir))
 
-    classifier = model.get_model(num_class, normal_channel=args.use_normals)
-    criterion = model.get_loss()
+    classifier = model.get_model(args.num_point, num_class, normal_channel=args.use_normals)
+    # criterion = model.get_loss()
+    criterion = pytorch3d.loss.chamfer_distance
     classifier.apply(inplace_relu)
 
     if not args.use_cpu:
         classifier = classifier.cuda()
-        criterion = criterion.cuda()
+        # criterion = criterion.cuda()
 
     try:
         checkpoint = torch.load(str(exp_dir) + '/checkpoints/best_model.pth')
@@ -161,14 +163,13 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     global_epoch = 0
     global_step = 0
-    best_instance_acc = 0.0
-    best_class_acc = 0.0
+    lowest_recon_loss = float('inf')
 
     '''TRANING'''
     logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        mean_correct = []
+        recon_losses = []
         classifier = classifier.train()
 
         scheduler.step()
@@ -180,48 +181,42 @@ def main(args):
             points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :, 0:3])
             points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
             points = torch.Tensor(points)
-            points = points.transpose(2, 1)
+            points = points.transpose(2, 1) # [B, N_pts, 3] -> [B, 3, N_pts]
 
             if not args.use_cpu:
                 points, target = points.cuda(), target.cuda()
 
-            pred, trans_feat = classifier(points)
-            loss = criterion(pred, target.long(), trans_feat)
-            pred_choice = pred.data.max(1)[1]
-
-            correct = pred_choice.eq(target.long().data).cpu().sum()
-            mean_correct.append(correct.item() / float(points.size()[0]))
+            pred, latent_feat = classifier(points)
+            loss = criterion(pred, points.transpose(2, 1))[0]
+            recon_losses.append(loss.item())
             loss.backward()
             optimizer.step()
             global_step += 1
 
-        train_instance_acc = np.mean(mean_correct)
-        log_string('Train Instance Accuracy: %f' % train_instance_acc)
+        train_recon_loss = np.mean(recon_losses)
+        log_string('Train recon loss: %f' % train_recon_loss)
 
         with torch.no_grad():
-            instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
+            val_recon_loss = test(classifier.eval(), testDataLoader, criterion, num_class=num_class)
 
-            if (instance_acc >= best_instance_acc):
-                best_instance_acc = instance_acc
+            if (val_recon_loss < lowest_recon_loss):
+                lowest_recon_loss = val_recon_loss
                 best_epoch = epoch + 1
 
-            if (class_acc >= best_class_acc):
-                best_class_acc = class_acc
-            log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
-            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' % (best_instance_acc, best_class_acc))
-
-            if (instance_acc >= best_instance_acc):
                 logger.info('Save model...')
                 savepath = str(checkpoints_dir) + '/best_model.pth'
                 log_string('Saving at %s' % savepath)
                 state = {
                     'epoch': best_epoch,
-                    'instance_acc': instance_acc,
-                    'class_acc': class_acc,
+                    'val_recon_loss': val_recon_loss,
                     'model_state_dict': classifier.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }
                 torch.save(state, savepath)
+
+            log_string('Val recon loss: %f' % (val_recon_loss))
+            log_string('Lowest loss: %f' % (lowest_recon_loss))
+
             global_epoch += 1
 
     logger.info('End of training...')

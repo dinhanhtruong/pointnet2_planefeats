@@ -43,7 +43,7 @@ def test(model, loader, num_class=40, vote_num=1):
         if not args.use_cpu:
             points, target = points.cuda(), target.cuda()
 
-        points = points.transpose(2, 1)
+        points = points.transpose(2, 1)  # [B, 3, N_pts]
         # vote_pool = torch.zeros(target.size()[0], num_class).cuda()
         print("extracting feat")
         pred, _, preclassification_feat = classifier(points)
