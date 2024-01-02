@@ -33,7 +33,7 @@ class get_model(nn.Module):
         """
         Reconstructs input PC
         [B, 3, N_pts] --> [B, N_pts, 3]
-        also returns latent AE feat [..., 256]
+        also returns latent AE feat [B, 256]
         """
         B, _, n_pts = xyz.shape
         assert n_pts == self.n_pts
@@ -59,7 +59,6 @@ class get_model(nn.Module):
         x = self.decoder_drop1(F.relu(self.decoder_bn1(self.decoder_fc1(x))))
         x = self.decoder_drop2(F.relu(self.decoder_bn2(self.decoder_fc2(x))))
         x = self.decoder_out(x).reshape(B, n_pts, 3)
-
         return x, latent_feats
 
 

@@ -7,7 +7,7 @@ import os
 import sys
 import torch
 import numpy as np
-
+import wandb
 import datetime
 import logging
 import provider
@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=24, help='batch size in training')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
     parser.add_argument('--num_category', default=40, type=int, choices=[10, 40],  help='training on ModelNet10/40')
-    parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training')
+    parser.add_argument('--epoch', default=400, type=int, help='number of epoch in training')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training')
     parser.add_argument('--num_point', type=int, default=2048, help='Point Number')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training')
@@ -91,7 +91,7 @@ def main(args):
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     exp_dir = Path('./log/')
     exp_dir.mkdir(exist_ok=True)
-    exp_dir = exp_dir.joinpath('classification')
+    exp_dir = exp_dir.joinpath('reconstruction')
     exp_dir.mkdir(exist_ok=True)
     if args.log_dir is None:
         exp_dir = exp_dir.joinpath(timestr)
@@ -114,6 +114,12 @@ def main(args):
     logger.addHandler(file_handler)
     log_string('PARAMETER ...')
     log_string(args)
+
+    wandb.init(
+        project="shapenet_autoencoder",
+        # track hyperparameters and run metadata
+        config=args
+    )
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
@@ -218,6 +224,7 @@ def main(args):
             log_string('Lowest loss: %f' % (lowest_recon_loss))
 
             global_epoch += 1
+        wandb.log({"train_recon_loss": train_recon_loss, "val_recon_loss": val_recon_loss})
 
     logger.info('End of training...')
 
