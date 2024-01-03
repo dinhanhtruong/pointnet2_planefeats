@@ -54,10 +54,10 @@ def test(model, loader, loss_fn, num_class=40):
     losses = []
     model = model.eval()
 
-    for j, (points, target) in tqdm(enumerate(loader), total=len(loader)):
+    for j, (points, _) in tqdm(enumerate(loader), total=len(loader)):
 
         if not args.use_cpu:
-            points, target = points.cuda(), target.cuda()
+            points = points.cuda()
 
         points = points.transpose(2, 1)
         pred, _ = model(points)
@@ -179,7 +179,7 @@ def main(args):
         classifier = classifier.train()
 
         scheduler.step()
-        for batch_id, (points, target) in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
+        for batch_id, (points, _) in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             optimizer.zero_grad()
 
             points = points.data.numpy()
@@ -190,7 +190,7 @@ def main(args):
             points = points.transpose(2, 1) # [B, N_pts, 3] -> [B, 3, N_pts]
 
             if not args.use_cpu:
-                points, target = points.cuda(), target.cuda()
+                points= points.cuda()
 
             pred, latent_feat = classifier(points)
             loss = criterion(pred, points.transpose(2, 1))[0]

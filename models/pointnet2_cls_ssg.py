@@ -4,7 +4,7 @@ from pointnet2_utils import PointNetSetAbstraction
 
 
 class get_model(nn.Module):
-    def __init__(self, n_input_pts, num_class=-1,normal_channel=True):
+    def __init__(self, n_input_pts, num_class=-1,normal_channel=True, latent_dim=128):
         super(get_model, self).__init__()
         in_channel = 6 if normal_channel else 3
         self.normal_channel = normal_channel
@@ -14,13 +14,13 @@ class get_model(nn.Module):
         self.fc1 = nn.Linear(1024, 512)
         self.bn1 = nn.BatchNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
+        self.fc2 = nn.Linear(512, latent_dim)
+        self.bn2 = nn.BatchNorm1d(latent_dim)
         self.drop2 = nn.Dropout(0.4)
         # self.fc3 = nn.Linear(256, num_class)
 
         # decoder
-        self.decoder_fc1 = nn.Linear(256, 512)
+        self.decoder_fc1 = nn.Linear(latent_dim, 512)
         self.decoder_bn1 = nn.BatchNorm1d(512)
         self.decoder_drop1 = nn.Dropout(0.3)
         self.decoder_fc2 = nn.Linear(512, 1024)
