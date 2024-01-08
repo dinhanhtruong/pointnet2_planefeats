@@ -84,7 +84,7 @@ def write_pointcloud(filename,xyz_points,rgb_points=None):
                                         rgb_points[i,2].tostring())))
     fid.close()
 
-def get_point_cloud(model, loader):
+def get_point_cloud(model, loader,exp_name):
     model.eval()
 
     for j, (points, shape_names) in tqdm(enumerate(loader), total=len(loader)):
@@ -95,11 +95,12 @@ def get_point_cloud(model, loader):
         pred, latent_feat = model(points)
 
         # save PLY
-        for shape_pc, name in zip(pred, shape_names):
-            print("shape name: ", name)
-            write_pointcloud(f"plane_feats/point_clouds/{name}_recon.ply", shape_pc.cpu().numpy())
+        for i, (shape_pc, name) in enumerate(zip(pred, shape_names)):
+            if i % 50 == 1:
+                print("shape name: ", name)
+                write_pointcloud(f"plane_feats/{exp_name}/point_clouds/{name}_recon.ply", shape_pc.cpu().numpy())
         
-def extract_feats(model, loader):
+def extract_feats(model, loader, exp_name):
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
@@ -118,11 +119,11 @@ def extract_feats(model, loader):
     print("pairwise dists: ")
     print(pairwise_dists)
     print("saving feats: ", latent_feats.shape)
-    np.save("plane_feats/spaghetti_gt_plane_feats.npy", latent_feats)
+    np.save(f"plane_feats/{exp_name}/spaghetti_gt_plane_feats.npy", latent_feats)
 
-    np.savez("plane_feats/spaghetti_id_to_pointnet_feat", **name_to_latent_feat)
+    np.savez(f"plane_feats/{exp_name}/spaghetti_id_to_pointnet_feat", **name_to_latent_feat)
     
-    np.save("plane_feats/pairwise_dists.npy", pairwise_dists)
+    np.save(f"plane_feats/{exp_name}/pairwise_dists.npy", pairwise_dists)
 
 
 def main(args):
@@ -161,10 +162,16 @@ def main(args):
     checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
     model.load_state_dict(checkpoint['model_state_dict'])
 
+    # make temp results dir
+    results_path = f"plane_feats/{args.log_dir}"
+    if not os.path.exists(results_path):
+        os.mkdir(results_path)
+        os.makedirs(f"{results_path}/point_clouds", exist_ok=True)
+
 
     with torch.no_grad():
-        # get_point_cloud(model.eval(), fullDataLoader)
-        extract_feats(model.eval(), fullDataLoader)
+        get_point_cloud(model.eval(), fullDataLoader, args.log_dir)
+        extract_feats(model.eval(), fullDataLoader, args.log_dir)
 
 
 

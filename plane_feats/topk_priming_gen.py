@@ -2,9 +2,10 @@ import numpy as np
 import torch
 import json
 k=4 #num priming shapes
+exp_name="no_data_aug"
 
 
-dists = np.load("pairwise_dists.npy") #[n,n]. row i = dists vs. i-th plane
+dists = np.load(f"{exp_name}/pairwise_dists.npy") #[n,n]. row i = dists vs. i-th plane
 print("orig: ", dists.shape)
 # # remove diagonal  [n, n-1]. NOTE: handled below
 # dists = dists[~np.eye(dists.shape[0],dtype=bool)].reshape(dists.shape[0],-1)
@@ -29,5 +30,5 @@ for i, curr_row_indices in enumerate(topk_indices):
     print(topk_ids)
     obj[GT] = [topk_ids]
 
-with open("pointnet_autoencoder_priming_tuples.json", "w") as out:
+with open(f"{exp_name}/pointnet_autoencoder_priming_tuples.json", "w") as out:
     out.write(json.dumps(obj, indent=4))
